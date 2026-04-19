@@ -33,10 +33,20 @@ def _verify_password(password, stored_hash, salt):
 
 
 def _init_default_user():
-    """初始化默认管理员账号（仅首次运行）"""
+    """初始化默认管理员账号（兼容旧表结构，自动重建）"""
     try:
         with sqlite3.connect(USER_DB_PATH) as conn:
             c = conn.cursor()
+            # 检测是否存在旧版表结构（没有 password_hash 列）
+            try:
+                c.execute("SELECT password_hash, salt FROM users LIMIT 1")
+            except sqlite3.OperationalError:
+                # 列不存在，说明是旧表，删除重建
+                logger.warning("检测到旧版用户表结构，正在重建...")
+                c.execute("DROP TABLE IF EXISTS users")
+                conn.commit()
+
+            # 创建新表
             c.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +84,8 @@ def validate_login(username, password):
             return _verify_password(password, row[0], row[1])
     except Exception as e:
         logger.error("登录验证异常: %s", e)
+        # 如果表结构异常，尝试重新初始化
+        _init_default_user()
         return False
 
 
@@ -85,7 +97,7 @@ def login_window():
     root.resizable(False, False)
 
     window_width = 420
-    window_height = 360
+    window_height = 440
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     x = (screen_width // 2) - (window_width // 2)
