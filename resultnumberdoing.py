@@ -72,7 +72,9 @@ class PlateDatabaseManager:
 
     def _do_entry(self, plate_number):
         try:
-            self.db.insert_entry(plate_number)
+            # 入库时使用当前数据库中的基础费率
+            hourly_rate = self.db.get_setting('base_hourly_rate', 10.0)
+            self.db.insert_entry(plate_number, hourly_rate)
         except Exception as e:
             logger.error("入库失败 [%s]: %s", plate_number, e)
 

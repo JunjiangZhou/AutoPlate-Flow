@@ -13,8 +13,7 @@ from tkinter import filedialog
 from utils.logger import get_logger
 from utils.database import Database
 from config import (
-    PARKING_MODEL_PATH, BASE_HOURLY_RATE, RATE_HIGH_MULTIPLIER,
-    RATE_LOW_MULTIPLIER, DB_WRITE_INTERVAL, VIDEO_DISPLAY_WIDTH, VIDEO_DISPLAY_HEIGHT
+    PARKING_MODEL_PATH, DB_WRITE_INTERVAL, VIDEO_DISPLAY_WIDTH, VIDEO_DISPLAY_HEIGHT
 )
 
 logger = get_logger(__name__)
@@ -36,7 +35,13 @@ def _parking_detection_loop(label, stop_event, pause_event):
     iou_threshold = 0.2
     max_detections = 100
 
-    base_hourly_rate = BASE_HOURLY_RATE
+    # 从数据库读取动态费率设置
+    base_hourly_rate = _db.get_setting('base_hourly_rate', 10.0)
+    rate_high_multiplier = _db.get_setting('rate_high_multiplier', 1.5)
+    rate_low_multiplier = _db.get_setting('rate_low_multiplier', 0.8)
+    occupancy_high_threshold = _db.get_setting('occupancy_high_threshold', 80.0)
+    occupancy_low_threshold = _db.get_setting('occupancy_low_threshold', 50.0)
+
     hourly_rate = base_hourly_rate
     last_db_write_time = time.time()
 
@@ -94,12 +99,12 @@ def _parking_detection_loop(label, stop_event, pause_event):
         else:
             occupied_percentage = 0
 
-        if occupied_percentage > 80:
-            hourly_rate = base_hourly_rate * RATE_HIGH_MULTIPLIER
-        elif 50 < occupied_percentage <= 80:
+        if occupied_percentage > occupancy_high_threshold:
+            hourly_rate = base_hourly_rate * rate_high_multiplier
+        elif occupancy_low_threshold < occupied_percentage <= occupancy_high_threshold:
             hourly_rate = base_hourly_rate
         else:
-            hourly_rate = base_hourly_rate * RATE_LOW_MULTIPLIER
+            hourly_rate = base_hourly_rate * rate_low_multiplier
 
         current_time = time.time()
         if current_time - last_db_write_time >= DB_WRITE_INTERVAL:

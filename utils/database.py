@@ -193,6 +193,50 @@ class Database:
             row = c.fetchone()
             return row[0] if row else default
 
+    # ========== 系统设置 ==========
+    def init_settings_table(self):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value REAL NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # 初始化默认值
+            defaults = [
+                ('base_hourly_rate', 10.0),
+                ('rate_high_multiplier', 1.5),
+                ('rate_low_multiplier', 0.8),
+                ('occupancy_high_threshold', 80.0),
+                ('occupancy_low_threshold', 50.0)
+            ]
+            for key, val in defaults:
+                c.execute('''
+                    INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)
+                ''', (key, val))
+            logger.info("系统设置表初始化完成")
+
+    def get_setting(self, key, default=None):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('SELECT value FROM settings WHERE key = ?', (key,))
+            row = c.fetchone()
+            return row[0] if row else default
+
+    def set_setting(self, key, value):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+            ''', (key, value))
+            logger.info("设置更新: %s = %s", key, value)
+
 
 class UserDatabase:
     """用户认证数据库管理类"""
