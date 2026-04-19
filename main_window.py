@@ -85,21 +85,21 @@ def open_main_window():
     main_window.geometry("1280x720")
 
     # ========== 全局布局：左侧菜单 + 右侧区域 ==========
-    # 左侧菜单栏
-    left_frame = tk.Frame(main_window, width=260, bg="#2c3e50")
+    # 左侧菜单栏（浅灰主题）
+    left_frame = tk.Frame(main_window, width=260, bg="#e8e8e8")
     left_frame.pack(side="left", fill="y")
     left_frame.pack_propagate(False)
 
     # 右侧主区域
-    right_frame = tk.Frame(main_window, bg="#ecf0f1")
+    right_frame = tk.Frame(main_window, bg="#ffffff")
     right_frame.pack(side="left", expand=True, fill="both")
 
     # 内容区
-    content_frame = tk.Frame(right_frame, bg="#ecf0f1")
+    content_frame = tk.Frame(right_frame, bg="#ffffff")
     content_frame.pack(side="top", expand=True, fill="both")
 
     # 底部数据库面板
-    bottom_frame = tk.Frame(right_frame, bg="#bdc3c7", height=220)
+    bottom_frame = tk.Frame(right_frame, bg="#f0f0f0", height=220)
     bottom_frame.pack(side="bottom", fill="x")
     bottom_frame.pack_propagate(False)
 
@@ -189,31 +189,32 @@ def open_main_window():
 
     # ========== 左侧菜单内容 ==========
     # 标题
-    tk.Label(left_frame, text="智能停车场\n管理系统", font=("Microsoft YaHei", 14, "bold"),
-             bg="#f8f9fa", fg="#212529", justify="center").pack(pady=(15, 5))
+    # 标题
+    tk.Label(left_frame, text="智能停车场管理系统", font=("Microsoft YaHei", 14, "bold"),
+             bg="#e8e8e8", fg="#000000", justify="center").pack(pady=(15, 5))
 
     # 动态费率显示区
     rate_status_label = tk.Label(left_frame, text="当前动态费率: --", font=("Microsoft YaHei", 9),
-                                  bg="#e9ecef", fg="#198754", justify="left", padx=8, pady=5)
+                                  bg="#d0d0d0", fg="#006400", justify="left", padx=8, pady=5)
     rate_status_label.pack(fill="x", padx=10, pady=5)
 
     base_rate_label = tk.Label(left_frame, text="基础费率: --", font=("Microsoft YaHei", 8),
-                                bg="#f8f9fa", fg="#6c757d", justify="left", padx=10)
+                                bg="#e8e8e8", fg="#333333", justify="left", padx=10)
     base_rate_label.pack(fill="x", pady=(0, 5))
 
     # 分隔线
-    tk.Frame(left_frame, height=2, bg="#dee2e6").pack(fill="x", padx=10, pady=5)
+    tk.Frame(left_frame, height=2, bg="#bbbbbb").pack(fill="x", padx=10, pady=5)
 
     # 费率设置区
     tk.Label(left_frame, text="费率设置", font=("Microsoft YaHei", 11, "bold"),
-             bg="#f8f9fa", fg="#212529").pack(anchor="w", padx=15, pady=(5, 2))
+             bg="#e8e8e8", fg="#000000").pack(anchor="w", padx=15, pady=(5, 2))
 
-    settings_frame = tk.Frame(left_frame, bg="#f8f9fa", padx=15)
+    settings_frame = tk.Frame(left_frame, bg="#e8e8e8", padx=15)
     settings_frame.pack(fill="x")
 
     def make_setting_row(parent, label_text, default_val, row):
         tk.Label(parent, text=label_text, font=("Microsoft YaHei", 9),
-                 bg="#f8f9fa", fg="#495057").grid(row=row, column=0, sticky="w", pady=2)
+                 bg="#e8e8e8", fg="#000000").grid(row=row, column=0, sticky="w", pady=2)
         entry = tk.Entry(parent, width=8, font=("Microsoft YaHei", 9), justify="center",
                          relief="solid", bd=1)
         entry.grid(row=row, column=1, sticky="e", pady=2, padx=(5, 0))
@@ -237,29 +238,29 @@ def open_main_window():
 
     tk.Button(settings_frame, text="保存设置",
               command=lambda: _save_settings(entries, rate_status_label, base_rate_label),
-              bg="#3498db", fg="white", font=("Microsoft YaHei", 9),
+              bg="#4a90d9", fg="#000000", font=("Microsoft YaHei", 9),
               cursor="hand2").grid(row=5, column=0, columnspan=2, pady=8, sticky="ew")
 
     # 分隔线
-    tk.Frame(left_frame, height=2, bg="#dee2e6").pack(fill="x", padx=10, pady=5)
+    tk.Frame(left_frame, height=2, bg="#bbbbbb").pack(fill="x", padx=10, pady=5)
 
     # 功能按钮区
     tk.Label(left_frame, text="功能操作", font=("Microsoft YaHei", 11, "bold"),
-             bg="#f8f9fa", fg="#212529").pack(anchor="w", padx=15, pady=(5, 2))
+             bg="#e8e8e8", fg="#000000").pack(anchor="w", padx=15, pady=(5, 2))
 
-    btn_frame = tk.Frame(left_frame, bg="#f8f9fa", padx=15)
+    btn_frame = tk.Frame(left_frame, bg="#e8e8e8", padx=15)
     btn_frame.pack(fill="x")
 
     def make_btn(parent, text, cmd, color):
         tk.Button(parent, text=text, command=cmd,
-                  bg=color, fg="white", font=("Microsoft YaHei", 10),
+                  bg=color, fg="#000000", font=("Microsoft YaHei", 10, "bold"),
                   relief="flat", cursor="hand2",
                   width=20, pady=4).pack(pady=6, fill="x")
 
-    make_btn(btn_frame, "汽车进入", lambda: detection(mode="default"), "#3498db")
-    make_btn(btn_frame, "汽车出库", lambda: detection(mode="exit"), "#3498db")
-    make_btn(btn_frame, "容量检测", parking_monitor, "#9b59b6")
-    make_btn(btn_frame, "退出系统", main_window.destroy, "#e74c3c")
+    make_btn(btn_frame, "汽车进入", lambda: detection(mode="default"), "#87ceeb")
+    make_btn(btn_frame, "汽车出库", lambda: detection(mode="exit"), "#87ceeb")
+    make_btn(btn_frame, "容量检测", parking_monitor, "#dda0dd")
+    make_btn(btn_frame, "退出系统", main_window.destroy, "#f08080")
 
     # ========== 主功能逻辑 ==========
     def detection(mode):
@@ -309,16 +310,16 @@ def open_main_window():
         tk.Button(dialog, text="开始识别", command=confirm, width=15).pack(pady=10)
 
     def start_detection(source, mode, title_text):
-        video_container = tk.Frame(content_frame, bg="#ecf0f1")
+        video_container = tk.Frame(content_frame, bg="#ffffff")
         video_container.pack(side="left", padx=10, pady=5)
 
-        tk.Label(video_container, text=title_text, font=("Microsoft YaHei", 14, "bold"), bg="#ecf0f1").pack(anchor="nw", pady=5)
+        tk.Label(video_container, text=title_text, font=("Microsoft YaHei", 14, "bold"), bg="#ffffff").pack(anchor="nw", pady=5)
 
         video_label = tk.Label(video_container, bg="black")
         video_label.pack(anchor="nw")
 
         # 控制按钮区
-        ctrl_frame = tk.Frame(video_container, bg="#ecf0f1")
+        ctrl_frame = tk.Frame(video_container, bg="#ffffff")
         ctrl_frame.pack(fill="x", pady=5)
 
         stop_event = threading.Event()
@@ -364,14 +365,14 @@ def open_main_window():
         detection_thread.start()
 
     def parking_monitor():
-        video_container = tk.Frame(content_frame, bg="#ecf0f1")
+        video_container = tk.Frame(content_frame, bg="#ffffff")
         video_container.pack(side="left", padx=10, pady=5)
 
-        tk.Label(video_container, text="容量检测系统", font=("Microsoft YaHei", 14, "bold"), bg="#ecf0f1").pack(anchor="nw", pady=5)
+        tk.Label(video_container, text="容量检测系统", font=("Microsoft YaHei", 14, "bold"), bg="#ffffff").pack(anchor="nw", pady=5)
         video_label = tk.Label(video_container, bg="black")
         video_label.pack(anchor="nw")
 
-        ctrl_frame = tk.Frame(video_container, bg="#ecf0f1")
+        ctrl_frame = tk.Frame(video_container, bg="#ffffff")
         ctrl_frame.pack(fill="x", pady=5)
 
         stop_event = threading.Event()
