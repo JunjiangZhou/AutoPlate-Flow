@@ -1,8 +1,15 @@
-from login_window import *
-from db import initialize_db as init_parking_db
-from sql import initialize_db as init_user_db
+# -*- coding: UTF-8 -*-
+"""程序入口"""
+from login_window import login_window
+from utils.database import Database, UserDatabase
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 if __name__ == "__main__":
-    init_parking_db()
-    init_user_db()
+    logger.info("系统启动中...")
+    # 初始化数据库表
+    Database().init_tables()
+    UserDatabase().init_tables()
+    logger.info("数据库初始化完成")
     login_window()

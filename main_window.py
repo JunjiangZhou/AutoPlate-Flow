@@ -1,136 +1,288 @@
+# -*- coding: UTF-8 -*-
+"""
+智能停车场管理系统主界面（重构版）
+特性：完善的数据库管理、视频暂停/停止控制、摄像头支持
+"""
 import tkinter as tk
-import sqlite3
+from tkinter import ttk, messagebox, filedialog
 import threading
-import stream
-from tkinter import filedialog
-from detect_plate import plate_detection
-from tkinter import ttk
+import time
+
+from utils.logger import get_logger
+from utils.database import Database
+from config import REFRESH_INTERVAL, VIDEO_DISPLAY_WIDTH, VIDEO_DISPLAY_HEIGHT
+
+logger = get_logger(__name__)
+_db = Database()
+
+# 控制信号存储（按视频标签管理）
+_video_controls = {}
+
 
 def open_main_window():
     main_window = tk.Tk()
     main_window.title("智能停车场管理系统")
     main_window.geometry("1280x720")
 
-    # 创建左侧的Frame，用于放置标题和按钮
-    left_frame = tk.Frame(main_window, width=250, bg="lightgray")
+    # ========== 左侧菜单栏 ==========
+    left_frame = tk.Frame(main_window, width=250, bg="#2c3e50")
     left_frame.pack(side="left", fill="y")
+    left_frame.pack_propagate(False)
 
-    # 创建主内容区Frame，用于放置显示内容
-    content_frame = tk.Frame(main_window, bg="white")
+    # ========== 主内容区 ==========
+    content_frame = tk.Frame(main_window, bg="#ecf0f1")
     content_frame.pack(side="top", expand=True, fill="both")
 
-    # 创建底部的Frame，用于显示数据库内容
-    bottom_frame = tk.Frame(main_window, bg="lightgray", height=150)
+    # ========== 底部数据库面板（Notebook 多标签页） ==========
+    bottom_frame = tk.Frame(main_window, bg="#bdc3c7", height=220)
     bottom_frame.pack(side="bottom", fill="x")
+    bottom_frame.pack_propagate(False)
 
-    # 添加功能按钮到菜单Frame中
+    # 多标签页：停车记录 / 当前在库 / 收入统计
+    notebook = ttk.Notebook(bottom_frame)
+    notebook.pack(fill="both", expand=True)
+
+    # --- 标签页1：停车记录 ---
+    tab_records = tk.Frame(notebook)
+    notebook.add(tab_records, text="停车记录")
+
+    records_tree = ttk.Treeview(
+        tab_records,
+        columns=('ID', 'Plate', 'Amount', 'Entry', 'Exit', 'Status', 'Rate'),
+        show='headings'
+    )
+    for col, text, width in [
+        ('ID', 'ID', 50), ('Plate', '车牌号', 120), ('Amount', '费用(元)', 80),
+        ('Entry', '入库时间', 150), ('Exit', '出库时间', 150),
+        ('Status', '状态', 60), ('Rate', '费率', 60)
+    ]:
+        records_tree.heading(col, text=text)
+        records_tree.column(col, width=width, anchor='center')
+    records_tree.pack(side="left", fill="both", expand=True)
+
+    scrollbar = ttk.Scrollbar(tab_records, orient="vertical", command=records_tree.yview)
+    records_tree.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+
+    # 搜索框
+    search_frame = tk.Frame(tab_records)
+    search_frame.pack(fill="x", padx=5, pady=2)
+    tk.Label(search_frame, text="搜索车牌:").pack(side="left")
+    search_entry = tk.Entry(search_frame, width=15)
+    search_entry.pack(side="left", padx=5)
+
+    def do_search():
+        plate = search_entry.get().strip()
+        if plate:
+            records = _db.get_records_by_plate(plate)
+        else:
+            records = _db.get_all_records()
+        refresh_tree(records_tree, records)
+
+    tk.Button(search_frame, text="搜索", command=do_search).pack(side="left", padx=2)
+    tk.Button(search_frame, text="重置", command=lambda: refresh_tree(records_tree, _db.get_all_records())).pack(side="left", padx=2)
+
+    # --- 标签页2：当前在库车辆 ---
+    tab_current = tk.Frame(notebook)
+    notebook.add(tab_current, text="当前在库")
+
+    current_tree = ttk.Treeview(tab_current, columns=('ID', 'Plate', 'Entry', 'Rate'), show='headings')
+    for col, text, width in [('ID', 'ID', 50), ('Plate', '车牌号', 150), ('Entry', '入库时间', 200), ('Rate', '费率', 80)]:
+        current_tree.heading(col, text=text)
+        current_tree.column(col, width=width, anchor='center')
+    current_tree.pack(side="left", fill="both", expand=True)
+    scrollbar2 = ttk.Scrollbar(tab_current, orient="vertical", command=current_tree.yview)
+    current_tree.configure(yscrollcommand=scrollbar2.set)
+    scrollbar2.pack(side="right", fill="y")
+
+    # --- 标签页3：收入统计 ---
+    tab_stats = tk.Frame(notebook)
+    notebook.add(tab_stats, text="收入统计")
+
+    stats_tree = ttk.Treeview(tab_stats, columns=('Date', 'Count', 'Revenue', 'Current'), show='headings')
+    for col, text, width in [('Date', '日期', 120), ('Count', '总车次', 80), ('Revenue', '收入(元)', 100), ('Current', '在库数', 80)]:
+        stats_tree.heading(col, text=text)
+        stats_tree.column(col, width=width, anchor='center')
+    stats_tree.pack(side="left", fill="both", expand=True)
+    scrollbar3 = ttk.Scrollbar(tab_stats, orient="vertical", command=stats_tree.yview)
+    stats_tree.configure(yscrollcommand=scrollbar3.set)
+    scrollbar3.pack(side="right", fill="y")
+
+    # ========== 通用表格刷新函数 ==========
+    def refresh_tree(tree, records):
+        for item in tree.get_children():
+            tree.delete(item)
+        for record in records:
+            tree.insert('', tk.END, values=record)
+
+    def auto_refresh():
+        # 刷新停车记录
+        refresh_tree(records_tree, _db.get_all_records())
+        # 刷新当前在库
+        refresh_tree(current_tree, _db.get_current_parked())
+        # 刷新统计
+        refresh_tree(stats_tree, _db.get_revenue_stats(days=7))
+        bottom_frame.after(REFRESH_INTERVAL, auto_refresh)
+
+    auto_refresh()
+
+    # ========== 主功能逻辑 ==========
     def toll():
         for widget in content_frame.winfo_children():
-            widget.destroy()  # 清空右侧内容区域
-
+            widget.destroy()
 
         def detection(mode):
-            # 打开文件选择对话框
             if mode == "default":
-                file_path= filedialog.askopenfilename(title="汽车进入",
-                                                   filetypes=(("MP4视频文件", "*.mp4"),
-                                                              ("All files", "*.*")))
-                label_text = "车牌识别系统（入库）"
-            if mode == "exit":
-                file_path = filedialog.askopenfilename(title="汽车出库",
-                                                       filetypes=(("MP4视频文件", "*.mp4"),
-                                                                  ("All files", "*.*")))
-                label_text = "车牌识别系统（出库）"
-            if not file_path:
-                return  # 如果文件路径为空，则退出函数
-            video_container = tk.Frame(content_frame)
-            video_container.pack(side="left", padx=10, pady=5)
-            tk.Label(video_container, text=label_text, font=("Arial", 16)).pack(side="top", anchor="nw", pady=5)
-            video_label = tk.Label(video_container)
-            video_label.pack(side="top", anchor="nw")
+                title = "车牌识别系统（入库）"
+                file_title = "选择入库视频/摄像头"
+            else:
+                title = "车牌识别系统（出库）"
+                file_title = "选择出库视频/摄像头"
 
-            # 在单独的线程中运行视频检测，避免阻塞主线程
+            # 支持选择视频文件或直接输入摄像头索引
+            dialog = tk.Toplevel(main_window)
+            dialog.title(file_title)
+            dialog.geometry("350x200")
+            dialog.transient(main_window)
+            dialog.grab_set()
+
+            tk.Label(dialog, text="选择视频源:").pack(pady=5)
+            source_var = tk.StringVar()
+            source_entry = tk.Entry(dialog, textvariable=source_var, width=35)
+            source_entry.pack(pady=5)
+
+            def choose_file():
+                path = filedialog.askopenfilename(
+                    title=file_title,
+                    filetypes=(("视频文件", "*.mp4 *.avi *.mkv"), ("所有文件", "*.*"))
+                )
+                if path:
+                    source_var.set(path)
+
+            def use_camera():
+                source_var.set("0")
+
+            btn_frame = tk.Frame(dialog)
+            btn_frame.pack(pady=5)
+            tk.Button(btn_frame, text="选择文件", command=choose_file).pack(side="left", padx=5)
+            tk.Button(btn_frame, text="使用摄像头", command=use_camera).pack(side="left", padx=5)
+
+            def confirm():
+                source = source_var.get().strip()
+                if not source:
+                    messagebox.showwarning("提示", "请选择视频源")
+                    return
+                dialog.destroy()
+                start_detection(source, mode, title)
+
+            tk.Button(dialog, text="开始识别", command=confirm, width=15).pack(pady=10)
+
+        def start_detection(source, mode, title_text):
+            video_container = tk.Frame(content_frame, bg="#ecf0f1")
+            video_container.pack(side="left", padx=10, pady=5)
+
+            tk.Label(video_container, text=title_text, font=("Microsoft YaHei", 14, "bold"), bg="#ecf0f1").pack(anchor="nw", pady=5)
+
+            video_label = tk.Label(video_container, bg="black")
+            video_label.pack(anchor="nw")
+
+            # 控制按钮区
+            ctrl_frame = tk.Frame(video_container, bg="#ecf0f1")
+            ctrl_frame.pack(fill="x", pady=5)
+
+            stop_event = threading.Event()
+            pause_event = threading.Event()
+            _video_controls[id(video_label)] = (stop_event, pause_event)
+
+            def do_stop():
+                stop_event.set()
+                btn_stop.config(state="disabled")
+                btn_pause.config(state="disabled")
+                btn_resume.config(state="disabled")
+                logger.info("用户停止视频识别")
+
+            def do_pause():
+                pause_event.set()
+                btn_pause.config(state="disabled")
+                btn_resume.config(state="normal")
+                logger.info("用户暂停视频识别")
+
+            def do_resume():
+                pause_event.clear()
+                btn_pause.config(state="normal")
+                btn_resume.config(state="disabled")
+                logger.info("用户恢复视频识别")
+
+            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=8, bg="#e74c3c", fg="white")
+            btn_stop.pack(side="left", padx=2)
+            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=8, bg="#f39c12")
+            btn_pause.pack(side="left", padx=2)
+            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=8, bg="#2ecc71", state="disabled")
+            btn_resume.pack(side="left", padx=2)
+
+            # 启动检测线程
             def run_detection():
-                plate_detection(file_path, video_label,mode)
-                
-            # 启动run_detection线程
-            detection_thread = threading.Thread(target=run_detection)
+                try:
+                    from plate_detector import plate_detection
+                    plate_detection(source, video_label, mode, stop_event=stop_event, pause_event=pause_event)
+                except Exception as e:
+                    logger.error("检测线程异常: %s", e)
+                    messagebox.showerror("错误", f"检测异常: {e}")
+
+            detection_thread = threading.Thread(target=run_detection, daemon=True)
             detection_thread.start()
 
-        # 刷新显示数据库内容
-        def refresh_records():
-            # 清除旧的记录
-            for widget in bottom_frame.winfo_children():
-                if isinstance(widget, ttk.Treeview):
-                    widget.destroy()
-
-            # 连接到SQLite数据库并查询记录
-            conn = sqlite3.connect('parking_system.db')
-            c = conn.cursor()
-            c.execute('SELECT * FROM toll_records')
-            records = c.fetchall()
-            conn.close()
-
-            # 定义表头
-            columns = ('ID', 'Plate Number', 'Toll Amount', 'Entry Time', 'Exit Time')
-            tree = ttk.Treeview(bottom_frame, columns=columns, show='headings')
-
-            # 设置表头
-            for col in columns:
-                tree.heading(col, text=col)
-                tree.column(col, width=150)
-
-            # 插入数据
-            for record in records:
-                tree.insert('', tk.END, values=record)
-
-            # 将 Treeview 放置在 bottom_frame 中
-            tree.pack(expand=True, fill='both')
-
-            # 每5秒刷新一次
-            bottom_frame.after(5000, refresh_records)
-
-        # 开始刷新数据库记录
-        refresh_records()
-
         def parking_monitor():
-            # 为容量检测功能创建一个新的视频容器
-            video_container = tk.Frame(content_frame)
+            video_container = tk.Frame(content_frame, bg="#ecf0f1")
             video_container.pack(side="left", padx=10, pady=5)
 
-            # 添加标题和视频显示的label
-            tk.Label(video_container, text="容量检测系统", font=("Arial", 16)).pack(side="top", anchor="nw", pady=5)
-            video_label = tk.Label(video_container)
-            video_label.pack(side="top", anchor="nw")
+            tk.Label(video_container, text="容量检测系统", font=("Microsoft YaHei", 14, "bold"), bg="#ecf0f1").pack(anchor="nw", pady=5)
+            video_label = tk.Label(video_container, bg="black")
+            video_label.pack(anchor="nw")
 
-            # 调用 parking_detection 并将 video_label 传递给它
-            stream.parking_detection(video_label)
+            ctrl_frame = tk.Frame(video_container, bg="#ecf0f1")
+            ctrl_frame.pack(fill="x", pady=5)
 
-            # 在左侧Frame中添加按钮和标题
+            stop_event = threading.Event()
+            pause_event = threading.Event()
 
-        title_label = tk.Label(left_frame, text="车牌识别与智能计费系统", font=("Arial", 16), bg="lightgray")
-        title_label.pack(pady=20)
+            def do_stop():
+                stop_event.set()
+                btn_stop.config(state="disabled")
+                logger.info("用户停止容量检测")
 
-        file_button_enter = tk.Button(left_frame, text="汽车进入", command=lambda: detection(mode="default"), width=20)
-        file_button_enter.pack(pady=10)
+            def do_pause():
+                pause_event.set()
+                btn_pause.config(state="disabled")
+                btn_resume.config(state="normal")
 
-        file_button_exit = tk.Button(left_frame, text="汽车出库", command=lambda: detection(mode="exit"), width=20)
-        file_button_exit.pack(pady=10)
+            def do_resume():
+                pause_event.clear()
+                btn_pause.config(state="normal")
+                btn_resume.config(state="disabled")
 
-        monitor_button = tk.Button(left_frame, text="容量检测", command=parking_monitor, width=20)
-        monitor_button.pack(pady=10)
+            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=8, bg="#e74c3c", fg="white")
+            btn_stop.pack(side="left", padx=2)
+            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=8, bg="#f39c12")
+            btn_pause.pack(side="left", padx=2)
+            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=8, bg="#2ecc71", state="disabled")
+            btn_resume.pack(side="left", padx=2)
 
-        exit_button = tk.Button(left_frame, text="退出", command=main_window.destroy, width=20)
-        exit_button.pack(pady=10)
+            import stream
+            stream.parking_detection(video_label, stop_event=stop_event, pause_event=pause_event)
 
+        # 左侧菜单按钮
+        tk.Label(left_frame, text="车牌识别与智能计费系统", font=("Microsoft YaHei", 14, "bold"),
+                 bg="#2c3e50", fg="white", wraplength=220).pack(pady=20)
 
+        tk.Button(left_frame, text="汽车进入", command=lambda: detection(mode="default"),
+                  width=20, bg="#3498db", fg="white", font=("Microsoft YaHei", 10)).pack(pady=10)
+        tk.Button(left_frame, text="汽车出库", command=lambda: detection(mode="exit"),
+                  width=20, bg="#3498db", fg="white", font=("Microsoft YaHei", 10)).pack(pady=10)
+        tk.Button(left_frame, text="容量检测", command=parking_monitor,
+                  width=20, bg="#9b59b6", fg="white", font=("Microsoft YaHei", 10)).pack(pady=10)
+        tk.Button(left_frame, text="退出系统", command=main_window.destroy,
+                  width=20, bg="#e74c3c", fg="white", font=("Microsoft YaHei", 10)).pack(pady=10)
 
-
-    # 直接进入收费管理功能
     toll()
-
     main_window.mainloop()
-
-# 运行主窗口
-if __name__ == "__main__":
-    open_main_window()
