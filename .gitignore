@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 运行时生成的文件
+*.db
+*.mp4
+result/
+
+# 模型权重（可选，如果权重文件较大建议忽略）
+# weights/*.pt
+# weights/*.pth
+
+# 临时文件
+*.tmp
+imgs/tmp*.png
+imgs/Quicker_*.png
+
+# 系统文件
+.DS_Store
+Thumbs.db
