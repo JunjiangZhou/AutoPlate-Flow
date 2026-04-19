@@ -190,31 +190,32 @@ def open_main_window():
     # ========== 左侧菜单内容 ==========
     # 标题
     tk.Label(left_frame, text="智能停车场\n管理系统", font=("Microsoft YaHei", 14, "bold"),
-             bg="#2c3e50", fg="white", justify="center").pack(pady=(15, 5))
+             bg="#f8f9fa", fg="#212529", justify="center").pack(pady=(15, 5))
 
     # 动态费率显示区
     rate_status_label = tk.Label(left_frame, text="当前动态费率: --", font=("Microsoft YaHei", 9),
-                                  bg="#34495e", fg="#2ecc71", justify="left", padx=8, pady=5)
+                                  bg="#e9ecef", fg="#198754", justify="left", padx=8, pady=5)
     rate_status_label.pack(fill="x", padx=10, pady=5)
 
     base_rate_label = tk.Label(left_frame, text="基础费率: --", font=("Microsoft YaHei", 8),
-                                bg="#2c3e50", fg="#bdc3c7", justify="left", padx=10)
+                                bg="#f8f9fa", fg="#6c757d", justify="left", padx=10)
     base_rate_label.pack(fill="x", pady=(0, 5))
 
     # 分隔线
-    tk.Frame(left_frame, height=2, bg="#34495e").pack(fill="x", padx=10, pady=5)
+    tk.Frame(left_frame, height=2, bg="#dee2e6").pack(fill="x", padx=10, pady=5)
 
     # 费率设置区
     tk.Label(left_frame, text="费率设置", font=("Microsoft YaHei", 11, "bold"),
-             bg="#2c3e50", fg="white").pack(anchor="w", padx=15, pady=(5, 2))
+             bg="#f8f9fa", fg="#212529").pack(anchor="w", padx=15, pady=(5, 2))
 
-    settings_frame = tk.Frame(left_frame, bg="#2c3e50", padx=15)
+    settings_frame = tk.Frame(left_frame, bg="#f8f9fa", padx=15)
     settings_frame.pack(fill="x")
 
     def make_setting_row(parent, label_text, default_val, row):
         tk.Label(parent, text=label_text, font=("Microsoft YaHei", 9),
-                 bg="#2c3e50", fg="#bdc3c7").grid(row=row, column=0, sticky="w", pady=2)
-        entry = tk.Entry(parent, width=8, font=("Microsoft YaHei", 9), justify="center")
+                 bg="#f8f9fa", fg="#495057").grid(row=row, column=0, sticky="w", pady=2)
+        entry = tk.Entry(parent, width=8, font=("Microsoft YaHei", 9), justify="center",
+                         relief="solid", bd=1)
         entry.grid(row=row, column=1, sticky="e", pady=2, padx=(5, 0))
         entry.insert(0, str(default_val))
         return entry
@@ -240,13 +241,13 @@ def open_main_window():
               cursor="hand2").grid(row=5, column=0, columnspan=2, pady=8, sticky="ew")
 
     # 分隔线
-    tk.Frame(left_frame, height=2, bg="#34495e").pack(fill="x", padx=10, pady=5)
+    tk.Frame(left_frame, height=2, bg="#dee2e6").pack(fill="x", padx=10, pady=5)
 
     # 功能按钮区
     tk.Label(left_frame, text="功能操作", font=("Microsoft YaHei", 11, "bold"),
-             bg="#2c3e50", fg="white").pack(anchor="w", padx=15, pady=(5, 2))
+             bg="#f8f9fa", fg="#212529").pack(anchor="w", padx=15, pady=(5, 2))
 
-    btn_frame = tk.Frame(left_frame, bg="#2c3e50", padx=15)
+    btn_frame = tk.Frame(left_frame, bg="#f8f9fa", padx=15)
     btn_frame.pack(fill="x")
 
     def make_btn(parent, text, cmd, color):
