@@ -326,8 +326,11 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     return nn.Sequential(*layers), sorted(save)
 
 
-from thop import profile
-from thop import clever_format
+try:
+    from thop import profile, clever_format
+except ImportError:
+    profile = None
+    clever_format = None
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='yolov5s.yaml', help='model.yaml')

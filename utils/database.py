@@ -45,9 +45,17 @@ class Database:
                     entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     exit_time TIMESTAMP,
                     hourly_rate REAL DEFAULT 10.0,
-                    status TEXT DEFAULT 'in'  -- 'in' 在库, 'out' 已出库
+                    status TEXT DEFAULT 'in'
                 )
             ''')
+            # 兼容旧表：如果缺少 status 列则添加
+            try:
+                c.execute("SELECT status FROM toll_records LIMIT 1")
+            except sqlite3.OperationalError:
+                logger.warning("检测到旧版 toll_records 表，添加 status 列")
+                c.execute("ALTER TABLE toll_records ADD COLUMN status TEXT DEFAULT 'in'")
+                conn.commit()
+
             # 动态费率记录表
             c.execute('''
                 CREATE TABLE IF NOT EXISTS hourly_rates (
@@ -177,21 +185,32 @@ class Database:
             return True
 
     # ========== 动态费率 ==========
-    def insert_hourly_rate(self, rate):
+    def init_hourly_rates_table(self):
+        """兼容旧表：添加 occupied_pct 列"""
         with self._connect() as conn:
             c = conn.cursor()
-            c.execute('INSERT INTO hourly_rates (rate) VALUES (?)', (rate,))
-            logger.info("动态费率写入: %.2f", rate)
+            try:
+                c.execute("SELECT occupied_pct FROM hourly_rates LIMIT 1")
+            except sqlite3.OperationalError:
+                logger.warning("检测到旧版 hourly_rates 表，添加 occupied_pct 列")
+                c.execute("ALTER TABLE hourly_rates ADD COLUMN occupied_pct REAL DEFAULT 0.0")
+                conn.commit()
+
+    def insert_hourly_rate(self, rate, occupied_pct=0.0):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('INSERT INTO hourly_rates (rate, occupied_pct) VALUES (?, ?)', (rate, occupied_pct))
+            logger.info("动态费率写入: %.2f, 占用率: %.1f%%", rate, occupied_pct)
 
     def get_latest_hourly_rate(self, default=10.0):
         with self._connect() as conn:
             c = conn.cursor()
             c.execute('''
-                SELECT rate FROM hourly_rates
+                SELECT rate, occupied_pct FROM hourly_rates
                 ORDER BY timestamp DESC LIMIT 1
             ''')
             row = c.fetchone()
-            return row[0] if row else default
+            return row if row else (default, 0.0)
 
     # ========== 系统设置 ==========
     def init_settings_table(self):

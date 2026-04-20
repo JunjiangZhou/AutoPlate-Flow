@@ -76,7 +76,7 @@ def get_plate_result(img,device,model,is_color=False):
 def init_model(device,model_path,is_color = False):
     # print( print(sys.path))
     # model_path ="plate_recognition/model/checkpoint_61_acc_0.9715.pth"
-    check_point = torch.load(model_path,map_location=device)
+    check_point = torch.load(model_path, map_location=device, weights_only=False)
     model_state=check_point['state_dict']
     cfg=check_point['cfg']
     color_classes=0

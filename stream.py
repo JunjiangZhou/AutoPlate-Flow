@@ -21,11 +21,11 @@ logger = get_logger(__name__)
 _db = Database()
 
 
-def insert_hourly_rate_into_db(hourly_rate):
-    _db.insert_hourly_rate(hourly_rate)
+def insert_hourly_rate_into_db(hourly_rate, occupied_pct=0.0):
+    _db.insert_hourly_rate(hourly_rate, occupied_pct)
 
 
-def _parking_detection_loop(label, stop_event, pause_event):
+def _parking_detection_loop(label, stop_event, pause_event, video_path=None):
     """容量检测循环（在独立线程中运行）"""
     logger.info("加载容量检测模型: %s", PARKING_MODEL_PATH)
     model = YOLO(PARKING_MODEL_PATH)
@@ -45,10 +45,11 @@ def _parking_detection_loop(label, stop_event, pause_event):
     hourly_rate = base_hourly_rate
     last_db_write_time = time.time()
 
-    video_path = filedialog.askopenfilename(
-        title="选择视频文件",
-        filetypes=(("MP4文件", "*.mp4"), ("所有文件", "*.*"))
-    )
+    if video_path is None:
+        video_path = filedialog.askopenfilename(
+            title="选择视频文件",
+            filetypes=(("MP4文件", "*.mp4"), ("所有文件", "*.*"))
+        )
     if not video_path:
         logger.info("未选择视频文件，取消容量检测")
         return
@@ -108,7 +109,7 @@ def _parking_detection_loop(label, stop_event, pause_event):
 
         current_time = time.time()
         if current_time - last_db_write_time >= DB_WRITE_INTERVAL:
-            insert_hourly_rate_into_db(hourly_rate)
+            insert_hourly_rate_into_db(hourly_rate, occupied_percentage)
             logger.info("动态费率更新: %.2f (占用率: %.1f%%)", hourly_rate, occupied_percentage)
             last_db_write_time = current_time
 
@@ -142,9 +143,28 @@ def parking_detection(label, stop_event=None, pause_event=None):
 
     thread = threading.Thread(
         target=_parking_detection_loop,
-        args=(label, stop_event, pause_event),
+        args=(label, stop_event, pause_event, None),
         daemon=True
     )
     thread.start()
     logger.info("容量检测线程已启动")
+    return stop_event, pause_event
+
+
+def parking_detection_with_source(video_path, label, stop_event=None, pause_event=None):
+    """
+    启动容量检测，使用指定视频源（线程安全，不阻塞主线程）
+    """
+    if stop_event is None:
+        stop_event = threading.Event()
+    if pause_event is None:
+        pause_event = threading.Event()
+
+    thread = threading.Thread(
+        target=_parking_detection_loop,
+        args=(label, stop_event, pause_event, video_path),
+        daemon=True
+    )
+    thread.start()
+    logger.info("容量检测线程已启动: %s", video_path)
     return stop_event, pause_event

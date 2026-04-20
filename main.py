@@ -12,6 +12,7 @@ if __name__ == "__main__":
     db = Database()
     db.init_tables()
     db.init_settings_table()
+    db.init_hourly_rates_table()
     UserDatabase().init_tables()
     logger.info("数据库初始化完成")
     login_window()

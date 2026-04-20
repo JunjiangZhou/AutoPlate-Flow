@@ -10,7 +10,7 @@ import time
 import copy
 import numpy as np
 import torch
-from PIL import ImageTk
+from PIL import Image, ImageTk
 from concurrent.futures import ThreadPoolExecutor
 
 from models.experimental import attempt_load
@@ -166,6 +166,10 @@ def get_plate_rec_landmark(img, xyxy, conf, landmarks, class_num, device, plate_
             roi_img, device, plate_rec_model, is_color=is_color
         )
 
+    # OCR 识别结果（每帧都输出太多，改为每10帧采样或异常时输出）
+    # 这里暂时注释掉，避免刷屏
+    # logger.debug("OCR结果: plate_number=%s, color=%s, conf=%s", plate_number, plate_color if is_color else "N/A", rec_prob)
+
     result_dict['rect'] = rect
     result_dict['detect_conf'] = conf
     result_dict['landmarks'] = landmarks_np.tolist()
@@ -239,13 +243,17 @@ def _get_padding_bbox(rect_area):
 
 
 def _draw_single_plate(orgimg, result, color=(0, 0, 255), track_id=None):
-    """绘制单个车牌结果"""
+    """绘制单个车牌结果，返回 (绘制后的图像, 文字)"""
     rect_area = result['rect']
     landmarks = result.get('landmarks')
 
     x1, y1, x2, y2 = _get_padding_bbox(rect_area)
 
-    result_p = result['plate_no']
+    # 如果识别结果为空，显示提示文字
+    raw_plate = result.get('plate_no', '')
+    if not raw_plate:
+        raw_plate = "未识别"
+    result_p = raw_plate
     if result.get('plate_type', 0) == 0:
         result_p += " " + result.get('plate_color', '')
     else:
@@ -262,27 +270,32 @@ def _draw_single_plate(orgimg, result, color=(0, 0, 255), track_id=None):
     # 绘制检测框
     cv2.rectangle(orgimg, (x1, y1), (x2, y2), color, 2)
 
-    # 绘制文字背景
+    # 绘制文字背景（限制y坐标最小为5，防止画到图像外面）
     labelSize = cv2.getTextSize(result_p, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-    text_x = x1
+    text_x = max(5, x1)
+    text_y = max(5, int(y1 - round(1.6 * labelSize[0][1])))
     if text_x + labelSize[0][0] > orgimg.shape[1]:
         text_x = int(orgimg.shape[1] - labelSize[0][0])
-    orgimg = cv2.rectangle(
+    bg_x2 = min(int(text_x + round(1.2 * labelSize[0][0])), orgimg.shape[1] - 1)
+    bg_y2 = min(y1 + labelSize[1], orgimg.shape[0] - 1)
+
+    cv2.rectangle(
         orgimg,
-        (text_x, int(y1 - round(1.6 * labelSize[0][1]))),
-        (int(text_x + round(1.2 * labelSize[0][0])), y1 + labelSize[1]),
+        (text_x, text_y),
+        (bg_x2, bg_y2),
         (255, 255, 255), cv2.FILLED
     )
-    orgimg = cv2ImgAddText(orgimg, result_p, text_x, int(y1 - round(1.6 * labelSize[0][1])), (0, 0, 0), 21)
+    # cv2ImgAddText 返回全新数组，必须接收返回值
+    orgimg = cv2ImgAddText(orgimg, result_p, text_x, text_y, (0, 0, 0), 21)
 
-    return result_p
+    return orgimg, result_p
 
 
 def draw_result(mode, orgimg, dict_list, is_color=False):
     """原始无跟踪绘制（兼容图片模式）"""
     result_str = ""
     for result in dict_list:
-        result_p = _draw_single_plate(orgimg, result)
+        orgimg, result_p = _draw_single_plate(orgimg, result)
         result_str += result_p.split('] ')[-1] if '] ' in result_p else result_p
         result_str += " "
 
@@ -297,6 +310,13 @@ def draw_tracked_result(mode, orgimg, tracker, is_color=False):
     """跟踪模式绘制：给每个跟踪目标分配稳定颜色，显示跟踪ID"""
     active_tracks = tracker.get_active_tracks()
 
+    # 跟踪目标日志（避免刷屏，只在数量变化时输出更佳，这里先降级为 debug）
+    if active_tracks:
+        logger.debug("活跃跟踪目标: %d个", len(active_tracks))
+        for trk in active_tracks:
+            plate_no = trk.history[-1]['plate_no'] if trk.history else "空"
+            logger.debug("  Track #%d: plate=%s, history=%d", trk.track_id, plate_no, len(trk.history))
+
     for trk in active_tracks:
         color = TRACK_COLORS[trk.track_id % len(TRACK_COLORS)]
 
@@ -307,11 +327,12 @@ def draw_tracked_result(mode, orgimg, tracker, is_color=False):
             'plate_color': trk.history[-1]['plate_color'] if trk.history else "",
             'plate_type': trk.plate_type
         }
-        _draw_single_plate(orgimg, result_dict, color=color, track_id=trk.track_id)
+        orgimg, _ = _draw_single_plate(orgimg, result_dict, color=color, track_id=trk.track_id)
 
     # 处理已确认消失的目标
     confirmed = tracker.get_confirmed_plates()
     if confirmed:
+        logger.info("确认车牌写入数据库: %s", [c['plate_no'] for c in confirmed])
         _db_manager.submit_tracked_plates(confirmed, mode)
 
     return orgimg
@@ -355,15 +376,17 @@ def plate_detection(source, label, mode, stop_event=None, pause_event=None):
         import threading
         pause_event = threading.Event()
 
+    logger.info("正在初始化模型，请稍候...")
     device = ModelCache.get_device()
     detect_model = ModelCache.get_detect_model()
     plate_rec_model = ModelCache.get_rec_model(is_color=True)
     ModelCache.warmup()
+    logger.info("模型初始化完成")
 
     capture = open_video_source(source)
     if not capture.isOpened():
         logger.error("无法打开视频源: %s", source)
-        return
+        raise RuntimeError(f"无法打开视频源: {source}")
 
     tracker = PlateTracker()
     frame_count = 0
