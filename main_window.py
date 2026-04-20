@@ -183,8 +183,7 @@ def open_main_window():
             ask_and_start(parent_page, mode, title_prefix)
 
         tk.Button(toolbar, text="+ 添加监控", command=add_monitor,
-                  fg="black", font=("Microsoft YaHei", 9, "bold"),
-                  cursor="hand2").pack(side="left", padx=5, pady=5)
+                  font=("Microsoft YaHei", 9, "bold")).pack(side="left", padx=5, pady=5)
 
         tk.Label(toolbar, text=f"{title_prefix} — 可同时运行多路视频",
                  bg="#f5f5f5", font=("Microsoft YaHei", 9), fg="#555").pack(side="left", padx=10)
@@ -250,9 +249,9 @@ def open_main_window():
             btn_row = tk.Frame(dialog)
             btn_row.pack(pady=5)
             tk.Button(btn_row, text="选择文件", command=choose_file, width=12,
-                      fg="black", font=("Microsoft YaHei", 10)).pack(side="left", padx=5)
+                      font=("Microsoft YaHei", 10)).pack(side="left", padx=5)
             tk.Button(btn_row, text="使用摄像头", command=use_camera, width=12,
-                      fg="black", font=("Microsoft YaHei", 10)).pack(side="left", padx=5)
+                      font=("Microsoft YaHei", 10)).pack(side="left", padx=5)
 
             def confirm():
                 source = source_var.get().strip()
@@ -263,7 +262,7 @@ def open_main_window():
                 start_monitor(parent_grid, source, mode, title_prefix)
 
             tk.Button(dialog, text="开始识别", command=confirm, width=15,
-                      fg="black", font=("Microsoft YaHei", 10, "bold")).pack(pady=12)
+                      font=("Microsoft YaHei", 10, "bold")).pack(pady=12)
         except Exception as e:
             logger.error("ask_and_start 异常: %s", e, exc_info=True)
             messagebox.showerror("错误", f"打开识别窗口失败: {e}")
@@ -313,13 +312,13 @@ def open_main_window():
                 panel.destroy()
                 logger.info("关闭监控面板: %s", source)
 
-            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=8, bg="#e74c3c", fg="white")
+            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=8)
             btn_stop.pack(side="left", padx=2)
-            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=8, bg="#f39c12")
+            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=8)
             btn_pause.pack(side="left", padx=2)
-            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=8, bg="#2ecc71", state="disabled")
+            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=8, state="disabled")
             btn_resume.pack(side="left", padx=2)
-            tk.Button(ctrl_frame, text="关闭面板", command=do_close_panel, width=10, bg="#95a5a6").pack(side="left", padx=10)
+            tk.Button(ctrl_frame, text="关闭面板", command=do_close_panel, width=10).pack(side="left", padx=10)
 
             def run_detection():
                 try:
@@ -385,8 +384,7 @@ def open_main_window():
 
     tk.Button(settings_frame, text="保存设置",
               command=lambda: _save_settings(entries, rate_status_label, base_rate_label),
-              fg="black", font=("Microsoft YaHei", 9),
-              cursor="hand2").grid(row=5, column=0, columnspan=2, pady=8, sticky="ew")
+              font=("Microsoft YaHei", 9)).grid(row=5, column=0, columnspan=2, pady=8, sticky="ew")
 
     tk.Frame(left_frame, height=2, bg="#bbbbbb").pack(fill="x", padx=10, pady=5)
 
@@ -401,8 +399,8 @@ def open_main_window():
 
     def make_nav_btn(parent, text, idx):
         tk.Button(parent, text=text, command=lambda: switch_page(idx),
-                  fg="black", font=("Microsoft YaHei", 10, "bold"),
-                  relief="flat", cursor="hand2", width=20, pady=6).pack(pady=5, fill="x")
+                  font=("Microsoft YaHei", 10, "bold"),
+                  width=20, pady=6).pack(pady=5, fill="x")
 
     make_nav_btn(nav_frame, "入库管理", page_entry)
     make_nav_btn(nav_frame, "出库管理", page_exit)
@@ -410,8 +408,8 @@ def open_main_window():
 
     tk.Frame(left_frame, height=2, bg="#bbbbbb").pack(fill="x", padx=10, pady=5)
     tk.Button(left_frame, text="退出系统", command=main_window.destroy,
-              fg="black", font=("Microsoft YaHei", 10, "bold"),
-              relief="flat", cursor="hand2", width=20, pady=6).pack(pady=10)
+              font=("Microsoft YaHei", 10, "bold"),
+              width=20, pady=6).pack(pady=10)
 
     # ========== 线程安全错误队列 ==========
     error_queue = queue.Queue()
