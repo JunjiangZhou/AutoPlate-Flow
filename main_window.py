@@ -180,7 +180,7 @@ def open_main_window():
         toolbar.pack_propagate(False)
 
         def add_monitor():
-            ask_and_start(parent_page, mode, title_prefix)
+            ask_and_start(video_grid, mode, title_prefix)
 
         tk.Button(toolbar, text="+ 添加监控", command=add_monitor,
                   font=("Microsoft YaHei", 9, "bold")).pack(side="left", padx=5, pady=5)
@@ -188,7 +188,7 @@ def open_main_window():
         tk.Label(toolbar, text=f"{title_prefix} — 可同时运行多路视频",
                  bg="#f5f5f5", font=("Microsoft YaHei", 9), fg="#555").pack(side="left", padx=10)
 
-        # 视频容器区域（用 Canvas + Frame 实现滚动）
+        # 视频容器区域（用 Canvas + Frame 实现垂直滚动）
         canvas = tk.Canvas(parent_page, bg="#ffffff", highlightthickness=0)
         scrollbar_v = ttk.Scrollbar(parent_page, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar_v.set)
@@ -196,14 +196,12 @@ def open_main_window():
         canvas.pack(side="left", expand=True, fill="both")
 
         video_grid = tk.Frame(canvas, bg="#ffffff")
-        canvas_window = canvas.create_window((0, 0), window=video_grid, anchor="nw")
+        canvas.create_window((0, 0), window=video_grid, anchor="nw")
 
         def on_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
-            canvas.itemconfig(canvas_window, width=event.width)
 
         video_grid.bind("<Configure>", on_configure)
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
 
         return video_grid
 
@@ -268,25 +266,43 @@ def open_main_window():
             messagebox.showerror("错误", f"打开识别窗口失败: {e}")
 
     def start_monitor(parent_grid, source, mode, title_prefix):
-        """在指定的 grid 中添加一个视频面板并启动检测线程"""
+        """在指定的 grid 中添加一个视频面板并启动检测线程（固定2列网格布局）"""
         try:
-            # 每个监控面板是一个独立的 Frame
-            panel = tk.Frame(parent_grid, bg="#ffffff", bd=1, relief="solid")
-            panel.pack(side="top", fill="x", padx=5, pady=5)
+            # 计算在 grid 中的位置（固定2列，从左到右，从上到下）
+            idx = len(parent_grid.winfo_children())
+            row = idx // 2
+            col = idx % 2
 
-            header = tk.Frame(panel, bg="#eeeeee")
+            # 每个监控面板固定大小：视频 + header + ctrl + padding
+            panel = tk.Frame(parent_grid, bg="#ffffff", bd=1, relief="solid",
+                             width=VIDEO_DISPLAY_WIDTH + 20,
+                             height=VIDEO_DISPLAY_HEIGHT + 72)
+            panel.grid(row=row, column=col, padx=5, pady=5, sticky="nw")
+            panel.grid_propagate(False)  # 禁止子组件改变面板大小
+
+            header = tk.Frame(panel, bg="#eeeeee", height=26)
             header.pack(fill="x")
+            header.pack_propagate(False)
             tk.Label(header, text=f"{title_prefix} — {source}",
-                     bg="#eeeeee", font=("Microsoft YaHei", 9, "bold")).pack(side="left", padx=5)
+                     bg="#eeeeee", font=("Microsoft YaHei", 8, "bold")).pack(side="left", padx=5, pady=2)
 
-            video_label = tk.Label(panel, bg="black", width=VIDEO_DISPLAY_WIDTH, height=VIDEO_DISPLAY_HEIGHT)
-            video_label.pack(anchor="nw", padx=5, pady=5)
+            # 固定像素大小的视频容器
+            video_frame = tk.Frame(panel, bg="black",
+                                   width=VIDEO_DISPLAY_WIDTH,
+                                   height=VIDEO_DISPLAY_HEIGHT)
+            video_frame.pack(anchor="nw", padx=10, pady=4)
+            video_frame.pack_propagate(False)
 
-            ctrl_frame = tk.Frame(panel, bg="#ffffff")
-            ctrl_frame.pack(fill="x", padx=5, pady=(0, 5))
+            video_label = tk.Label(video_frame, bg="black")
+            video_label.pack(fill="both", expand=True)
+
+            ctrl_frame = tk.Frame(panel, bg="#ffffff", height=30)
+            ctrl_frame.pack(fill="x", padx=10, pady=(0, 4))
+            ctrl_frame.pack_propagate(False)
 
             stop_event = threading.Event()
             pause_event = threading.Event()
+            _closed = False  # 幂等标志
 
             def do_stop():
                 stop_event.set()
@@ -308,17 +324,27 @@ def open_main_window():
                 logger.info("用户恢复监控: %s", source)
 
             def do_close_panel():
+                nonlocal _closed
+                if _closed:
+                    return
+                _closed = True
                 stop_event.set()
-                panel.destroy()
+                try:
+                    if panel.winfo_exists():
+                        panel.destroy()
+                        for i, child in enumerate(parent_grid.winfo_children()):
+                            child.grid_configure(row=i // 2, column=i % 2)
+                except tk.TclError:
+                    pass
                 logger.info("关闭监控面板: %s", source)
 
-            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=8)
-            btn_stop.pack(side="left", padx=2)
-            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=8)
-            btn_pause.pack(side="left", padx=2)
-            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=8, state="disabled")
-            btn_resume.pack(side="left", padx=2)
-            tk.Button(ctrl_frame, text="关闭面板", command=do_close_panel, width=10).pack(side="left", padx=10)
+            btn_stop = tk.Button(ctrl_frame, text="停止", command=do_stop, width=6)
+            btn_stop.pack(side="left", padx=1, pady=2)
+            btn_pause = tk.Button(ctrl_frame, text="暂停", command=do_pause, width=6)
+            btn_pause.pack(side="left", padx=1, pady=2)
+            btn_resume = tk.Button(ctrl_frame, text="继续", command=do_resume, width=6, state="disabled")
+            btn_resume.pack(side="left", padx=1, pady=2)
+            tk.Button(ctrl_frame, text="关闭", command=do_close_panel, width=6).pack(side="right", padx=4, pady=2)
 
             def run_detection():
                 try:
@@ -333,6 +359,9 @@ def open_main_window():
                 except Exception as e:
                     logger.error("检测线程异常: %s", e, exc_info=True)
                     error_queue.put(f"检测异常: {e}")
+                finally:
+                    # 检测结束（停止/视频结束/异常）后自动销毁面板
+                    main_window.after(0, do_close_panel)
 
             detection_thread = threading.Thread(target=run_detection, daemon=True)
             detection_thread.start()

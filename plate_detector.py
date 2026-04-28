@@ -306,8 +306,11 @@ def draw_result(mode, orgimg, dict_list, is_color=False):
     return orgimg
 
 
-def draw_tracked_result(mode, orgimg, tracker, is_color=False):
-    """跟踪模式绘制：给每个跟踪目标分配稳定颜色，显示跟踪ID"""
+def draw_tracked_result(mode, orgimg, tracker, is_color=False, only_fresh=False):
+    """跟踪模式绘制：给每个跟踪目标分配稳定颜色，显示跟踪ID
+    :param only_fresh: 为 True 时只绘制 lost_count==0 的目标（跳帧用），
+                       避免上一检测帧已丢失的目标在跳帧时继续绘制造成拖影
+    """
     active_tracks = tracker.get_active_tracks()
 
     # 跟踪目标日志（避免刷屏，只在数量变化时输出更佳，这里先降级为 debug）
@@ -318,6 +321,10 @@ def draw_tracked_result(mode, orgimg, tracker, is_color=False):
             logger.debug("  Track #%d: plate=%s, history=%d", trk.track_id, plate_no, len(trk.history))
 
     for trk in active_tracks:
+        # 跳帧时跳过上一检测帧已未匹配的目标，避免拖影
+        if only_fresh and trk.lost_count > 0:
+            continue
+
         color = TRACK_COLORS[trk.track_id % len(TRACK_COLORS)]
 
         result_dict = {
@@ -406,10 +413,10 @@ def plate_detection(source, label, mode, stop_event=None, pause_event=None):
 
             frame_count += 1
 
-            # 跳帧：非检测帧只绘制跟踪结果，不做推理
+            # 跳帧：非检测帧不做推理，只绘制上一检测帧仍被匹配的跟踪目标，
+            # 避免已丢失的目标继续绘制造成拖影，同时保持和检测帧完全一致的绘制风格
             if frame_count % SKIP_FRAMES != 0:
-                # tracker 状态不变，只绘制当前活跃的跟踪目标
-                ori_img = draw_tracked_result(mode, img, tracker, is_color=True)
+                ori_img = draw_tracked_result(mode, img, tracker, is_color=True, only_fresh=True)
             else:
                 t1 = cv2.getTickCount()
                 dict_list = detect_Recognition_plate(
@@ -418,7 +425,7 @@ def plate_detection(source, label, mode, stop_event=None, pause_event=None):
                 # 将检测结果传入跟踪器
                 tracker.update(dict_list)
                 # 绘制跟踪结果（同时处理已确认消失的 track）
-                ori_img = draw_tracked_result(mode, img, tracker, is_color=True)
+                ori_img = draw_tracked_result(mode, img, tracker, is_color=True, only_fresh=False)
                 t2 = cv2.getTickCount()
                 infer_time = (t2 - t1) / cv2.getTickFrequency()
                 fps = 1.0 / infer_time if infer_time > 0 else 0
