@@ -1,19 +1,21 @@
 # -*- coding: UTF-8 -*-
-"""统一数据库管理模块"""
+"""统一数据库管理模块（合并版）
+所有数据存放在单个 SQLite 数据库中
+"""
 import sqlite3
 import threading
+import hashlib
+import os
 from contextlib import contextmanager
 from datetime import datetime
-from config import DB_PATH, USER_DB_PATH
+from config import DB_PATH
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class Database:
-    """停车场数据库管理类（线程安全）"""
-
-    _local = threading.local()
+    """停车场数据库管理类（线程安全）—— 单库管理所有数据"""
 
     def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
@@ -32,8 +34,14 @@ class Database:
         finally:
             conn.close()
 
-    # ========== 初始化 ==========
-    def init_tables(self):
+    # ========== 初始化（一次性调用） ==========
+    def init_all_tables(self):
+        """初始化所有表（停车记录、费率、设置、用户）"""
+        self.init_parking_tables()
+        self.init_settings_table()
+        self.init_user_table()
+
+    def init_parking_tables(self):
         with self._connect() as conn:
             c = conn.cursor()
             # 停车记录表
@@ -48,29 +56,103 @@ class Database:
                     status TEXT DEFAULT 'in'
                 )
             ''')
-            # 兼容旧表：如果缺少 status 列则添加
-            try:
-                c.execute("SELECT status FROM toll_records LIMIT 1")
-            except sqlite3.OperationalError:
-                logger.warning("检测到旧版 toll_records 表，添加 status 列")
-                c.execute("ALTER TABLE toll_records ADD COLUMN status TEXT DEFAULT 'in'")
-                conn.commit()
-
             # 动态费率记录表
             c.execute('''
                 CREATE TABLE IF NOT EXISTS hourly_rates (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     rate REAL NOT NULL,
+                    occupied_pct REAL DEFAULT 0.0,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            logger.info("停车场数据库表初始化完成")
+            logger.info("停车记录表初始化完成")
 
-    # ========== 入库操作 ==========
+    def init_settings_table(self):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value REAL NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            defaults = [
+                ('base_hourly_rate', 10.0),
+                ('rate_high_multiplier', 1.5),
+                ('rate_low_multiplier', 0.8),
+                ('occupancy_high_threshold', 80.0),
+                ('occupancy_low_threshold', 50.0)
+            ]
+            for key, val in defaults:
+                c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (key, val))
+            logger.info("设置表初始化完成")
+
+    def init_user_table(self):
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    salt TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # 检查是否已有用户
+            c.execute("SELECT COUNT(*) FROM users")
+            if c.fetchone()[0] == 0:
+                pwd_hash, salt = self._hash_password("admin")
+                c.execute('''
+                    INSERT INTO users (username, password_hash, salt)
+                    VALUES (?, ?, ?)
+                ''', ("admin", pwd_hash, salt))
+                logger.info("默认管理员账号已创建: admin / admin")
+
+    @staticmethod
+    def _hash_password(password, salt=None):
+        if salt is None:
+            salt = os.urandom(16).hex()
+        pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+        return pwd_hash, salt
+
+    # ========== 用户认证 ==========
+    def validate_login(self, username, password):
+        if not username or not password:
+            return False
+        try:
+            with self._connect() as conn:
+                c = conn.cursor()
+                c.execute("SELECT password_hash, salt FROM users WHERE username = ?", (username,))
+                row = c.fetchone()
+                if not row:
+                    return False
+                stored_hash, salt = row
+                check_hash, _ = self._hash_password(password, salt)
+                return check_hash == stored_hash
+        except Exception as e:
+            logger.error("登录验证异常: %s", e)
+            return False
+
+    def add_user(self, username, password):
+        pwd_hash, salt = self._hash_password(password)
+        with self._connect() as conn:
+            c = conn.cursor()
+            try:
+                c.execute('''
+                    INSERT INTO users (username, password_hash, salt)
+                    VALUES (?, ?, ?)
+                ''', (username, pwd_hash, salt))
+                return True
+            except sqlite3.IntegrityError:
+                logger.warning("用户名 %s 已存在", username)
+                return False
+
+    # ========== 停车记录 ==========
     def insert_entry(self, plate_number, hourly_rate=10.0):
         with self._connect() as conn:
             c = conn.cursor()
-            # 检查是否已在库且未出库
             c.execute('''
                 SELECT id FROM toll_records
                 WHERE plate_number = ? AND status = 'in'
@@ -88,7 +170,6 @@ class Database:
             logger.info("入库成功: %s, 费率: %.2f", plate_number, hourly_rate)
             return True
 
-    # ========== 出库操作 ==========
     def insert_exit(self, plate_number):
         with self._connect() as conn:
             c = conn.cursor()
@@ -125,15 +206,13 @@ class Database:
                 'toll_amount': toll_amount
             }
 
-    # ========== 查询操作 ==========
+    # ========== 查询 ==========
     def get_all_records(self, limit=100):
         with self._connect() as conn:
             c = conn.cursor()
             c.execute('''
                 SELECT id, plate_number, toll_amount, entry_time, exit_time, status, hourly_rate
-                FROM toll_records
-                ORDER BY entry_time DESC
-                LIMIT ?
+                FROM toll_records ORDER BY entry_time DESC LIMIT ?
             ''', (limit,))
             return c.fetchall()
 
@@ -142,27 +221,20 @@ class Database:
             c = conn.cursor()
             c.execute('''
                 SELECT id, plate_number, toll_amount, entry_time, exit_time, status, hourly_rate
-                FROM toll_records
-                WHERE plate_number = ?
-                ORDER BY entry_time DESC
-                LIMIT ?
+                FROM toll_records WHERE plate_number = ? ORDER BY entry_time DESC LIMIT ?
             ''', (plate_number, limit))
             return c.fetchall()
 
     def get_current_parked(self):
-        """获取当前在库车辆"""
         with self._connect() as conn:
             c = conn.cursor()
             c.execute('''
                 SELECT id, plate_number, entry_time, hourly_rate
-                FROM toll_records
-                WHERE status = 'in'
-                ORDER BY entry_time DESC
+                FROM toll_records WHERE status = 'in' ORDER BY entry_time DESC
             ''')
             return c.fetchall()
 
     def get_revenue_stats(self, days=7):
-        """获取近 N 天的收入统计"""
         with self._connect() as conn:
             c = conn.cursor()
             c.execute('''
@@ -177,25 +249,7 @@ class Database:
             '''.format(days))
             return c.fetchall()
 
-    def delete_record(self, record_id):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('DELETE FROM toll_records WHERE id = ?', (record_id,))
-            logger.info("删除记录 ID=%s", record_id)
-            return True
-
     # ========== 动态费率 ==========
-    def init_hourly_rates_table(self):
-        """兼容旧表：添加 occupied_pct 列"""
-        with self._connect() as conn:
-            c = conn.cursor()
-            try:
-                c.execute("SELECT occupied_pct FROM hourly_rates LIMIT 1")
-            except sqlite3.OperationalError:
-                logger.warning("检测到旧版 hourly_rates 表，添加 occupied_pct 列")
-                c.execute("ALTER TABLE hourly_rates ADD COLUMN occupied_pct REAL DEFAULT 0.0")
-                conn.commit()
-
     def insert_hourly_rate(self, rate, occupied_pct=0.0):
         with self._connect() as conn:
             c = conn.cursor()
@@ -205,38 +259,11 @@ class Database:
     def get_latest_hourly_rate(self, default=10.0):
         with self._connect() as conn:
             c = conn.cursor()
-            c.execute('''
-                SELECT rate, occupied_pct FROM hourly_rates
-                ORDER BY timestamp DESC LIMIT 1
-            ''')
+            c.execute('SELECT rate, occupied_pct FROM hourly_rates ORDER BY timestamp DESC LIMIT 1')
             row = c.fetchone()
             return row if row else (default, 0.0)
 
     # ========== 系统设置 ==========
-    def init_settings_table(self):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value REAL NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            # 初始化默认值
-            defaults = [
-                ('base_hourly_rate', 10.0),
-                ('rate_high_multiplier', 1.5),
-                ('rate_low_multiplier', 0.8),
-                ('occupancy_high_threshold', 80.0),
-                ('occupancy_low_threshold', 50.0)
-            ]
-            for key, val in defaults:
-                c.execute('''
-                    INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)
-                ''', (key, val))
-            logger.info("系统设置表初始化完成")
-
     def get_setting(self, key, default=None):
         with self._connect() as conn:
             c = conn.cursor()
@@ -255,53 +282,3 @@ class Database:
                     updated_at = CURRENT_TIMESTAMP
             ''', (key, value))
             logger.info("设置更新: %s = %s", key, value)
-
-
-class UserDatabase:
-    """用户认证数据库管理类"""
-
-    def __init__(self, db_path=USER_DB_PATH):
-        self.db_path = db_path
-
-    def init_tables(self):
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    salt TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            conn.commit()
-            logger.info("用户数据库表初始化完成")
-
-    def validate_login(self, username, password_hash):
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            c.execute('''
-                SELECT password_hash, salt FROM users WHERE username = ?
-            ''', (username,))
-            row = c.fetchone()
-            if not row:
-                return False
-            stored_hash, salt = row
-            import hashlib
-            check_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000).hex()
-            return check_hash == stored_hash
-
-    def add_user(self, username, password_hash, salt):
-        with sqlite3.connect(self.db_path) as conn:
-            c = conn.cursor()
-            try:
-                c.execute('''
-                    INSERT INTO users (username, password_hash, salt)
-                    VALUES (?, ?, ?)
-                ''', (username, password_hash, salt))
-                conn.commit()
-                return True
-            except sqlite3.IntegrityError:
-                logger.warning("用户名 %s 已存在", username)
-                return False

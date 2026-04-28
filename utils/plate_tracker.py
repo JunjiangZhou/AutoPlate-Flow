@@ -139,12 +139,17 @@ class Track:
 
 
 class PlateTracker:
-    """车牌跟踪管理器"""
+    """车牌跟踪管理器
+    支持按模式处理冷却：
+    - 入库模式(mode='default')：使用冷却防止同一辆车重复入库
+    - 出库模式(mode='exit')：不检查冷却，确保每次出库都能被记录
+    """
 
     def __init__(self):
         self.tracks = []          # 当前活跃的跟踪目标
-        self.confirmed_plates = []  # 本轮已确认的车牌（待入库）
+        self.confirmed_plates = []  # 本轮已确认的车牌
         self._cooldown_map = {}   # 冷却记录: {plate_no: timestamp}
+        self.mode = 'default'     # 当前模式: 'default' 入库 / 'exit' 出库
 
     def _is_in_cooldown(self, plate_no):
         """检查车牌是否处于冷却期"""
@@ -217,17 +222,26 @@ class PlateTracker:
         for trk in dead_tracks:
             if not trk.confirmed and trk.is_ready_for_vote():
                 voted_plate, voted_color, conf = trk.vote_plate()
-                if voted_plate and not self._is_in_cooldown(voted_plate):
-                    self.confirmed_plates.append({
-                        'plate_no': voted_plate,
-                        'plate_color': voted_color,
-                        'confidence': conf,
-                        'track_id': trk.track_id,
-                        'plate_type': trk.plate_type
-                    })
+                if not voted_plate:
+                    continue
+                # 入库模式检查冷却，出库模式不检查
+                if self.mode == 'default' and self._is_in_cooldown(voted_plate):
+                    logger.info("[Track #%d] 车牌 %s 处于入库冷却期，跳过",
+                               trk.track_id, voted_plate)
+                    continue
+
+                self.confirmed_plates.append({
+                    'plate_no': voted_plate,
+                    'plate_color': voted_color,
+                    'confidence': conf,
+                    'track_id': trk.track_id,
+                    'plate_type': trk.plate_type
+                })
+                # 只有入库模式才添加冷却
+                if self.mode == 'default':
                     self._add_to_cooldown(voted_plate)
-                    logger.info("[Track #%d] 投票确认车牌: %s (置信度: %.0f%%), 历史记录数: %d",
-                               trk.track_id, voted_plate, conf * 100, len(trk.history))
+                logger.info("[Track #%d] 投票确认车牌[%s]: %s (置信度: %.0f%%), 历史记录数: %d",
+                           trk.track_id, self.mode, voted_plate, conf * 100, len(trk.history))
             elif not trk.confirmed:
                 logger.debug("[Track #%d] 历史记录不足(%d条)，丢弃", trk.track_id, len(trk.history))
 
@@ -262,6 +276,8 @@ class PlateTracker:
         """重置跟踪器（如视频切换时）"""
         self.tracks = []
         self.confirmed_plates = []
+        # 注意：出库时不清理冷却，但这里统一清理
         self._cooldown_map = {}
         Track._id_counter = 0
+        self.mode = 'default'
         logger.info("跟踪器已重置")

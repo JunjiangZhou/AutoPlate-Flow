@@ -389,6 +389,7 @@ def plate_detection(source, label, mode, stop_event=None, pause_event=None):
         raise RuntimeError(f"无法打开视频源: {source}")
 
     tracker = PlateTracker()
+    tracker.mode = mode  # 设置跟踪模式：入库/出库
     frame_count = 0
     fps_all = 0
 

@@ -2,91 +2,31 @@
 """
 登录窗口（重构版）
 特性：密码加密存储、输入校验、界面美化
+使用统一数据库 parking_system.db
 """
 import tkinter as tk
 from tkinter import messagebox
-import sqlite3
-import hashlib
-import os
 from PIL import Image, ImageTk
 
 from main_window import open_main_window
 from utils.logger import get_logger
-from utils.database import UserDatabase
-from config import USER_DB_PATH
+from utils.database import Database
 
 logger = get_logger(__name__)
-
-
-def _hash_password(password, salt=None):
-    """使用 PBKDF2 加密密码"""
-    if salt is None:
-        salt = os.urandom(16).hex()
-    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
-    return pwd_hash, salt
-
-
-def _verify_password(password, stored_hash, salt):
-    """验证密码"""
-    check_hash, _ = _hash_password(password, salt)
-    return check_hash == stored_hash
+_db = Database()
 
 
 def _init_default_user():
-    """初始化默认管理员账号（兼容旧表结构，自动重建）"""
+    """初始化默认管理员账号（单库模式）"""
     try:
-        with sqlite3.connect(USER_DB_PATH) as conn:
-            c = conn.cursor()
-            # 检测是否存在旧版表结构（没有 password_hash 列）
-            try:
-                c.execute("SELECT password_hash, salt FROM users LIMIT 1")
-            except sqlite3.OperationalError:
-                # 列不存在，说明是旧表，删除重建
-                logger.warning("检测到旧版用户表结构，正在重建...")
-                c.execute("DROP TABLE IF EXISTS users")
-                conn.commit()
-
-            # 创建新表
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    salt TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            # 检查是否已有用户
-            c.execute("SELECT COUNT(*) FROM users")
-            if c.fetchone()[0] == 0:
-                pwd_hash, salt = _hash_password("admin")
-                c.execute('''
-                    INSERT INTO users (username, password_hash, salt)
-                    VALUES (?, ?, ?)
-                ''', ("admin", pwd_hash, salt))
-                conn.commit()
-                logger.info("默认管理员账号已创建: admin / admin")
+        _db.init_user_table()
     except Exception as e:
-        logger.error("初始化用户数据库失败: %s", e)
+        logger.error("初始化用户表失败: %s", e)
 
 
 def validate_login(username, password):
     """验证用户名和密码"""
-    if not username or not password:
-        return False
-    try:
-        with sqlite3.connect(USER_DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute("SELECT password_hash, salt FROM users WHERE username = ?", (username,))
-            row = c.fetchone()
-            if not row:
-                return False
-            return _verify_password(password, row[0], row[1])
-    except Exception as e:
-        logger.error("登录验证异常: %s", e)
-        # 如果表结构异常，尝试重新初始化
-        _init_default_user()
-        return False
+    return _db.validate_login(username, password)
 
 
 def login_window():

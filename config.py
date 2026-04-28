@@ -16,7 +16,6 @@ USE_GPU = True                # 是否优先使用 GPU
 
 # ================== 数据库配置 ==================
 DB_PATH = "parking_system.db"
-USER_DB_PATH = "user_data.db"
 
 # ================== 停车场计费 ==================
 BASE_HOURLY_RATE = 10.0       # 基础每小时收费
